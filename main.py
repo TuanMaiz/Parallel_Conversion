@@ -270,10 +270,12 @@ if __name__ == '__main__':
             T=args.time_step,
             num_labels=args.num_classes   # set from dataset
         )
-    elif local_rank == 0:
-        print('unable to find model ' + args.net_arch)
+    else:
+        if local_rank == 0:
+            print('unable to find model ' + args.net_arch)
+        model = None
 
-    if local_rank == 0:
+    if local_rank == 0 and model is not None:
         #print(model)
         total_params = sum(p.numel() for p in model.parameters()) / 1e6
         print(f'total parameters: {total_params} M.')
