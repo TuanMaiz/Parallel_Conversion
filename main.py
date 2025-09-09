@@ -2,6 +2,7 @@ import argparse
 from models.VGG_QCFS import vgg16_qcfs
 from models.ResNet_QCFS import resnet20_qcfs, resnet34_qcfs
 from models.ResNet_ReLU import resnet18, resnet34, resnet50, resnet101
+from models.Bert_QCFS import BertForSequenceClassificationQCFS
 import torch
 import torch.nn as nn
 import random
@@ -260,6 +261,13 @@ if __name__ == '__main__':
     elif args.net_arch == 'resnet101':
         model = resnet101(pretrained=False if len(args.checkpoint_path) > 0 else True)
         is_relu = True
+    elif args.net_arch == "bert_base_qcfs":
+        from models import BertForSequenceClassificationQCFS
+        model = BertForSequenceClassificationQCFS(
+            pretrained_name="bert-base-uncased",
+            T=args.time_step,
+            num_labels=args.num_classes   # set from dataset
+        )
     elif local_rank == 0:
         print('unable to find model ' + args.net_arch)
 
