@@ -1,7 +1,9 @@
 import torch
 from torch import nn
 from transformers import BertModel, BertConfig
-from .modules_text import DA_QCFS_Text, ParaInfNeuron_Text   # <- from your modules.py
+import sys 
+sys.path.append("..") 
+from modules_text import DA_QCFS_Text, ParaInfNeuron_Text   # <- from your modules.py
 
 # === Intermediate + Output QCFS layers ===
 class BertIntermediateQCFS(nn.Module):
