@@ -264,7 +264,7 @@ if __name__ == '__main__':
         model = resnet101(pretrained=False if len(args.checkpoint_path) > 0 else True)
         is_relu = True
     elif args.net_arch == "bert_base_qcfs":
-        from models import BertForSequenceClassificationQCFS
+        from models.Bert_QCFS import BertForSequenceClassificationQCFS
         model = BertForSequenceClassificationQCFS(
             pretrained_name="bert-base-uncased",
             T=args.time_step,
