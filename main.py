@@ -196,6 +196,7 @@ if __name__ == '__main__':
     parser.add_argument('--pretrained_model', action='store_true', help='Use Pretrained Models')
     parser.add_argument('--mixup', action='store_true', help='Mixup')
     parser.add_argument('--amp', action='store_true', help='Use AMP training')
+    parser.add_argument('--workers', type=int, default=4, help='Number of data loading workers')
     parser.add_argument('--warm-up', type=str, nargs='+', default=[], help='--warm-up <epochs> <start-factor>')
     
     args = parser.parse_args()
