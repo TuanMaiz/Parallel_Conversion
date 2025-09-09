@@ -54,6 +54,7 @@ class BertForSequenceClassificationQCFS(nn.Module):
     def __init__(self, pretrained_name="bert-base-uncased", T=4, num_labels=2):
         super().__init__()
         config = BertConfig.from_pretrained(pretrained_name)
+        config._attn_implementation = "eager"   # or "sdpa" if you want SDPA
         self.bert = BertModel.from_pretrained(pretrained_name)
 
         # Replace encoder layers
