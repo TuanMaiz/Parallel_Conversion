@@ -17,21 +17,14 @@ class TextCLSDataset(Dataset):
         return len(self.dataset)
 
     def __getitem__(self, idx):
-        sample = self.dataset[idx]
-        text, label = sample["text"], sample["label"]
+        # Grab one sample from encodings
+        item = {key: torch.tensor(val[idx]) for key, val in self.encodings.items()}
 
-        # Tokenize
-        enc = self.tokenizer(text,
-                             max_length=self.max_len,
-                             padding="max_length",
-                             truncation=True,
-                             return_tensors="pt")
+        # Convert label to tensor
+        label = torch.tensor(self.labels[idx])
 
-        return {
-            "input_ids": enc["input_ids"].squeeze(0),
-            "attention_mask": enc["attention_mask"].squeeze(0),
-            "label": torch.tensor(label, dtype=torch.long)
-        }
+        # Return (dict, label) -> exactly 2 values
+        return item, label
 
 
 def get_dataloaders(batch_size=32, max_len=128, dataset_name="ag_news",
