@@ -17,7 +17,7 @@ from torch.cuda import amp
 from timm.data import Mixup
 from typing import Tuple
 from dataprocess_text import get_dataloaders as get_text_dataloaders
-from train_text_snn import train_text_one_epoch, eval_text_snn, calib_text_one_epoch
+from train_text_snn import train_text_one_epoch, eval_text_snn, calib_text_snn_one_epoch
 
 
 def get_logger(filename, verbosity=1, name=None):
