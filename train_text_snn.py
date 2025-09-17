@@ -42,42 +42,22 @@ def train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, sim_len, l
             # Note: Mixup for text needs special handling - may need to implement text-specific mixup
             pass  # Placeholder for text mixup
         
-        # Time-step expansion for text inputs - keep as separate batches
-        # input_ids: [B, S] -> [T, B, S]
-        # attention_mask: [B, S] -> [T, B, S]  
-        input_ids_expanded = input_ids.unsqueeze(0).repeat(sim_len, 1, 1)
-        attention_mask_expanded = attention_mask.unsqueeze(0).repeat(sim_len, 1, 1)
-        
         optimizer.zero_grad()
         
-        # Process through SNN
+        # Process through SNN - this is ANN-SNN conversion, not time-expanded input
+        # The spiking happens within the neurons, not in the input
         if scaler is not None:
             with amp.autocast():
-                # Forward pass through SNN
-                all_spikes = []
-                for t in range(sim_len):
-                    # Process single time step - ensure 2D input for BERT
-                    spike_t = model(input_ids=input_ids_expanded[t], 
-                                  attention_mask=attention_mask_expanded[t])
-                    all_spikes.append(spike_t)
-                
-                # Mean over time steps for readout
-                spikes = torch.stack(all_spikes).mean(dim=0)
-                loss = loss_fn(spikes, labels)
+                # Forward pass through SNN model (single timestep, neurons spike internally)
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+                loss = loss_fn(outputs, labels)
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
         else:
-            # Forward pass through SNN
-            all_spikes = []
-            for t in range(sim_len):
-                spike_t = model(input_ids=input_ids_expanded[t], 
-                              attention_mask=attention_mask_expanded[t])
-                all_spikes.append(spike_t)
-            
-            # Mean over time steps for readout
-            spikes = torch.stack(all_spikes).mean(dim=0)
-            loss = loss_fn(spikes, labels)
+            # Forward pass through SNN model (single timestep)
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            loss = loss_fn(outputs, labels)
             loss.backward()
             optimizer.step()
         
@@ -122,30 +102,18 @@ def eval_text_snn(model, test_dataloader, sim_len, record_time=False):
             
             total_samples += len(labels)
             
-            # Time-step expansion
-            input_ids_expanded = input_ids.unsqueeze(0).repeat(sim_len, 1, 1)
-            attention_mask_expanded = attention_mask.unsqueeze(0).repeat(sim_len, 1, 1)
-            
-            # Process through SNN
-            all_spikes = []
-            for t in range(sim_len):
-                if record_time:
-                    starter.record()
-                    spike_t = model(input_ids=input_ids_expanded[t:t+1], 
-                                  attention_mask=attention_mask_expanded[t:t+1])
-                    ender.record()
-                    torch.cuda.synchronize()
-                    tot_time += starter.elapsed_time(ender) / 1000
-                else:
-                    spike_t = model(input_ids=input_ids_expanded[t:t+1], 
-                                  attention_mask=attention_mask_expanded[t:t+1])
-                all_spikes.append(spike_t)
-            
-            # Mean over time steps for readout
-            spikes = torch.stack(all_spikes).mean(dim=0)
+            # Process through SNN model (single timestep, neurons spike internally)
+            if record_time:
+                starter.record()
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+                ender.record()
+                torch.cuda.synchronize()
+                tot_time += starter.elapsed_time(ender) / 1000
+            else:
+                outputs = model(input_ids=input_ids, attention_mask=attention_mask)
             
             # Calculate accuracy
-            _, predicted = torch.max(spikes, 1)
+            _, predicted = torch.max(outputs, 1)
             total_correct += (predicted == labels).sum().item()
     
     accuracy = total_correct / total_samples
@@ -226,21 +194,12 @@ def time_step_text_eval(model, test_dataloader, sim_len):
             attention_mask = inputs['attention_mask'].to(torch.device('cuda'), non_blocking=True)
             labels = labels.to(torch.device('cuda'), non_blocking=True)
             
-            # Time-step expansion
-            input_ids_expanded = input_ids.unsqueeze(0).repeat(sim_len, 1, 1)
-            attention_mask_expanded = attention_mask.unsqueeze(0).repeat(sim_len, 1, 1)
-            
-            # Accumulate spikes over time
-            accumulated_spikes = []
-            for t in range(sim_len):
-                spike_t = model(input_ids=input_ids_expanded[t], 
-                              attention_mask=attention_mask_expanded[t])
-                accumulated_spikes.append(spike_t)
-                
-                # Calculate accuracy up to current time step
-                current_spikes = torch.stack(accumulated_spikes).mean(dim=0)
-                _, predicted = torch.max(current_spikes, 1)
-                accuracy = (predicted == labels).sum().item() / len(labels)
-                accuracies.append(accuracy)
+            # For time-step evaluation, we need to simulate the SNN time evolution
+            # This requires the neurons to maintain state across timesteps
+            # For now, just do single evaluation (proper SNN state management needs more work)
+            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            _, predicted = torch.max(outputs, 1)
+            accuracy = (predicted == labels).sum().item() / len(labels)
+            accuracies.append(accuracy)
     
     return accuracies
