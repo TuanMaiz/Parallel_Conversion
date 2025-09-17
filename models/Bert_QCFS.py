@@ -47,6 +47,7 @@ class BertOutputQCFS(nn.Module):
 class BertLayerQCFS(nn.Module):
     def __init__(self, config, T=4):
         super().__init__()
+        self.config = config
         from transformers.models.bert.modeling_bert import BertAttention
         self.attention = BertAttention(config)
         self.intermediate = BertIntermediateQCFS(config, T)
@@ -62,26 +63,47 @@ class BertLayerQCFS(nn.Module):
         if len(args) >= 2:
             hidden_states = args[0]
             attention_mask = args[1]
-            # All other args (3-5) are ignored as they're not needed
+            # All other args (3-5) are ignored as they' re not needed
         
-        # Check if we got 2D input (input_ids instead of embedded hidden_states)
+        # Debug: Print tensor info
+        print(f"DEBUG: hidden_states shape: {hidden_states.shape}, dtype: {hidden_states.dtype}, dim: {hidden_states.dim()}")
+        
+        # Check if we got 2D input
         if hidden_states.dim() == 2:
-            # This happens when BERT passes input_ids directly - embed them
-            input_ids = hidden_states
-            batch_size, seq_length = input_ids.shape
-            
-            # Create position ids
-            position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
-            position_ids = position_ids.unsqueeze(0).expand(batch_size, seq_length)
-            
-            # Embed input_ids and position_ids
-            inputs_embeds = self.word_embeddings(input_ids)
-            position_embeds = self.position_embeddings(position_ids)
-            
-            # Combine embeddings
-            hidden_states = inputs_embeds + position_embeds
-            hidden_states = self.LayerNorm(hidden_states)
-            hidden_states = self.dropout(hidden_states)
+            # Check if it's actually input_ids (int/long) or flattened hidden states (float)
+            if hidden_states.dtype in [torch.long, torch.int]:
+                # These are actual input_ids
+                print("DEBUG: Received input_ids, embedding them...")
+                input_ids = hidden_states
+                batch_size, seq_length = input_ids.shape
+                
+                # Create position ids
+                position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
+                position_ids = position_ids.unsqueeze(0).expand(batch_size, seq_length)
+                
+                # Embed input_ids and position_ids
+                inputs_embeds = self.word_embeddings(input_ids)
+                position_embeds = self.position_embeddings(position_ids)
+                
+                # Combine embeddings
+                hidden_states = inputs_embeds + position_embeds
+                hidden_states = self.LayerNorm(hidden_states)
+                hidden_states = self.dropout(hidden_states)
+            else:
+                # These are flattened hidden states, reshape to 3D
+                print("DEBUG: Received flattened hidden states, reshaping...")
+                # Assume the last dimension is hidden_size
+                config = getattr(self, 'config', None)
+                if config is None:
+                    # Try to infer hidden_size
+                    hidden_size = 768  # Default for bert-base
+                else:
+                    hidden_size = config.hidden_size
+                
+                batch_size = hidden_states.shape[0]
+                seq_length = hidden_states.shape[1] // hidden_size
+                hidden_states = hidden_states.view(batch_size, seq_length, hidden_size)
+                print(f"DEBUG: Reshaped to: {hidden_states.shape}")
         
         # Now hidden_states should be 3D [B, S, H]
         attention_output = self.attention(hidden_states, attention_mask=attention_mask)[0]
