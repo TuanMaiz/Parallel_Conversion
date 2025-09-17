@@ -22,8 +22,9 @@ class ParaInfNeuron_Text(nn.Module):
         x = x.unsqueeze(0).expand(self.T, -1, -1, -1)   # [T, B, S, H]
         x = x.reshape(self.T, B*S, H)                   # [T, B*S, H]
 
-        # Mean over time, apply TxT scaling
-        out = (self.TxT * x.mean(dim=0) + self.bias) >= self.v_threshold
+        # Mean over time, apply TxT scaling - broadcast TxT to [T, H]
+        mean_over_time = x.mean(dim=0)  # [B*S, H]
+        out = (self.TxT.expand(-1, H) * mean_over_time + self.bias.expand(-1, H)) >= self.v_threshold
         out = out.float() * self.v_threshold
 
         # Reshape back to [B, S, H]
