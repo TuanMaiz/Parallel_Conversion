@@ -42,11 +42,11 @@ def train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, sim_len, l
             # Note: Mixup for text needs special handling - may need to implement text-specific mixup
             pass  # Placeholder for text mixup
         
-        # Time-step expansion for text inputs
-        # input_ids: [B, S] -> [T*B, S] 
-        # attention_mask: [B, S] -> [T*B, S]
-        input_ids_expanded = input_ids.unsqueeze(0).repeat(sim_len, 1, 1).flatten(0, 1)
-        attention_mask_expanded = attention_mask.unsqueeze(0).repeat(sim_len, 1, 1).flatten(0, 1)
+        # Time-step expansion for text inputs - keep as separate batches
+        # input_ids: [B, S] -> [T, B, S]
+        # attention_mask: [B, S] -> [T, B, S]  
+        input_ids_expanded = input_ids.unsqueeze(0).repeat(sim_len, 1, 1)
+        attention_mask_expanded = attention_mask.unsqueeze(0).repeat(sim_len, 1, 1)
         
         optimizer.zero_grad()
         
@@ -123,8 +123,8 @@ def eval_text_snn(model, test_dataloader, sim_len, record_time=False):
             total_samples += len(labels)
             
             # Time-step expansion
-            input_ids_expanded = input_ids.unsqueeze(0).repeat(sim_len, 1, 1).flatten(0, 1)
-            attention_mask_expanded = attention_mask.unsqueeze(0).repeat(sim_len, 1, 1).flatten(0, 1)
+            input_ids_expanded = input_ids.unsqueeze(0).repeat(sim_len, 1, 1)
+            attention_mask_expanded = attention_mask.unsqueeze(0).repeat(sim_len, 1, 1)
             
             # Process through SNN
             all_spikes = []
@@ -227,8 +227,8 @@ def time_step_text_eval(model, test_dataloader, sim_len):
             labels = labels.to(torch.device('cuda'), non_blocking=True)
             
             # Time-step expansion
-            input_ids_expanded = input_ids.unsqueeze(0).repeat(sim_len, 1, 1).flatten(0, 1)
-            attention_mask_expanded = attention_mask.unsqueeze(0).repeat(sim_len, 1, 1).flatten(0, 1)
+            input_ids_expanded = input_ids.unsqueeze(0).repeat(sim_len, 1, 1)
+            attention_mask_expanded = attention_mask.unsqueeze(0).repeat(sim_len, 1, 1)
             
             # Accumulate spikes over time
             accumulated_spikes = []
