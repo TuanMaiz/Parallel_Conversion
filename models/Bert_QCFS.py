@@ -14,10 +14,20 @@ class BertIntermediateQCFS(nn.Module):
         self.spike_neuron = ParaInfNeuron_Text(T)
 
     def forward(self, hidden_states):
-        x = self.dense(hidden_states)
-        x = self.da_qcfs(x)
-        x = self.spike_neuron(x)
-        return x
+        # If hidden_states has time dimension [T, B, S, H], process across time
+        if hidden_states.dim() == 4 and hidden_states.shape[0] == self.spike_neuron.T:
+            # Time-expanded input: [T, B, S, H]
+            x = self.dense(hidden_states)
+            x = self.da_qcfs(x)
+            x = self.spike_neuron(x)
+            return x
+        else:
+            # Single timestep input: [B, S, H]
+            x = self.dense(hidden_states)
+            x = self.da_qcfs(x)
+            # For single timestep, just apply threshold directly
+            x = (x >= self.spike_neuron.v_threshold).float() * self.spike_neuron.v_threshold
+            return x
 
 
 class BertOutputQCFS(nn.Module):
