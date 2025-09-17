@@ -56,7 +56,7 @@ class BertLayerQCFS(nn.Module):
     def forward(self, hidden_states, attention_mask=None, head_mask=None, 
                 encoder_hidden_states=None, encoder_attention_mask=None, 
                 past_key_values=None, use_cache=False, output_attentions=False,
-                output_hidden_states=False, return_dict=False):
+                output_hidden_states=False, return_dict=False, cache_position=None):
         # Ensure hidden_states is 3D
         if hidden_states.dim() == 2:
             batch_size, seq_len = hidden_states.shape
