@@ -32,8 +32,8 @@ class ParaInfNeuron_Text(nn.Module):
         out = (scaled + bias_expanded) >= self.v_threshold
         out = out.float() * self.v_threshold
 
-        # Reshape back to [B, S, H]
-        return out.view(B, S, H)
+        # Reshape back to [B, S, H] - out currently has shape [T, B*S, H]
+        return out.view(self.T, B, S, H).mean(dim=0)  # Average over timesteps to get [B, S, H]
 
 class DA_QCFS_Text(nn.Module):
     """
