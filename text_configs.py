@@ -35,20 +35,10 @@ TOKENIZER_CONFIGS = {
         'max_len': 128,
         'description': 'BERT base uncased model'
     },
-    'bert-base-cased': {
-        'name': 'bert-base-cased',
-        'max_len': 128,
-        'description': 'BERT base cased model'
-    },
     'distilbert-base-uncased': {
         'name': 'distilbert-base-uncased',
         'max_len': 128,
         'description': 'DistilBERT base uncased model'
-    },
-    'roberta-base': {
-        'name': 'roberta-base',
-        'max_len': 128,
-        'description': 'RoBERTa base model'
     }
 }
 

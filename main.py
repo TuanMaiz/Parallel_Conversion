@@ -283,6 +283,13 @@ if __name__ == '__main__':
             T=args.time_step,
             num_labels=args.num_classes   # set from dataset
         )
+    elif args.net_arch == "distilbert_base_qcfs":
+        from models.DistilBert_QCFS import DistilBertForSequenceClassificationQCFS
+        model = DistilBertForSequenceClassificationQCFS(
+            pretrained_name="distilbert-base-uncased",
+            T=args.time_step,
+            num_labels=args.num_classes   # set from dataset
+        )
     else:
         if local_rank == 0:
             print('unable to find model ' + args.net_arch)
