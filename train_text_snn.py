@@ -57,8 +57,8 @@ def train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, sim_len, l
                 all_spikes = []
                 for t in range(sim_len):
                     # Process single time step - ensure 2D input for BERT
-                    spike_t = model(input_ids=input_ids_expanded[t:t+1], 
-                                  attention_mask=attention_mask_expanded[t:t+1])
+                    spike_t = model(input_ids=input_ids_expanded[t], 
+                                  attention_mask=attention_mask_expanded[t])
                     all_spikes.append(spike_t)
                 
                 # Mean over time steps for readout
@@ -71,8 +71,8 @@ def train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, sim_len, l
             # Forward pass through SNN
             all_spikes = []
             for t in range(sim_len):
-                spike_t = model(input_ids=input_ids_expanded[t:t+1], 
-                              attention_mask=attention_mask_expanded[t:t+1])
+                spike_t = model(input_ids=input_ids_expanded[t], 
+                              attention_mask=attention_mask_expanded[t])
                 all_spikes.append(spike_t)
             
             # Mean over time steps for readout
@@ -233,8 +233,8 @@ def time_step_text_eval(model, test_dataloader, sim_len):
             # Accumulate spikes over time
             accumulated_spikes = []
             for t in range(sim_len):
-                spike_t = model(input_ids=input_ids_expanded[t:t+1], 
-                              attention_mask=attention_mask_expanded[t:t+1])
+                spike_t = model(input_ids=input_ids_expanded[t], 
+                              attention_mask=attention_mask_expanded[t])
                 accumulated_spikes.append(spike_t)
                 
                 # Calculate accuracy up to current time step
