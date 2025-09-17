@@ -61,7 +61,7 @@ def collate_fn(batch: List[Tuple[Dict[str, torch.Tensor], torch.Tensor]]) -> Tup
     labels = torch.stack([item[1] for item in batch])
     
     # Find the max sequence length in this batch
-    max_seq_len = max(input_ids.shape[0] for input_ids in inputs_list['input_ids'])
+    max_seq_len = max(input_ids.shape[0] for input_ids in [inputs['input_ids'] for inputs in inputs_list])
     
     # Pad input_ids and attention_mask to max sequence length
     batched_input_ids = []
