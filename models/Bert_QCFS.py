@@ -90,19 +90,10 @@ class BertLayerQCFS(nn.Module):
                 hidden_states = self.LayerNorm(hidden_states)
                 hidden_states = self.dropout(hidden_states)
             else:
-                # These are flattened hidden states, reshape to 3D
-                print("DEBUG: Received flattened hidden states, reshaping...")
-                # Assume the last dimension is hidden_size
-                config = getattr(self, 'config', None)
-                if config is None:
-                    # Try to infer hidden_size
-                    hidden_size = 768  # Default for bert-base
-                else:
-                    hidden_size = config.hidden_size
-                
-                batch_size = hidden_states.shape[0]
-                seq_length = hidden_states.shape[1] // hidden_size
-                hidden_states = hidden_states.view(batch_size, seq_length, hidden_size)
+                # These are hidden states without batch dimension, add batch dimension
+                print("DEBUG: Received hidden states without batch dimension, adding batch dim...")
+                # Shape is [seq_len, hidden_size], need [batch_size=1, seq_len, hidden_size]
+                hidden_states = hidden_states.unsqueeze(0)  # Add batch dimension
                 print(f"DEBUG: Reshaped to: {hidden_states.shape}")
         
         # Now hidden_states should be 3D [B, S, H]
