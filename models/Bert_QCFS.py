@@ -52,7 +52,16 @@ class BertLayerQCFS(nn.Module):
         self.intermediate = BertIntermediateQCFS(config, T)
         self.output = BertOutputQCFS(config)
 
-    def forward(self, hidden_states, attention_mask=None, **kwargs):
+    def forward(self, *args, **kwargs):
+        # Handle different calling patterns from BERT
+        if len(args) == 2:
+            # Standard call: (hidden_states, attention_mask)
+            hidden_states, attention_mask = args
+        else:
+            # Extended call: may include additional positional args
+            hidden_states = args[0]
+            attention_mask = args[1] if len(args) > 1 else kwargs.get('attention_mask')
+        
         # Only pass the essential arguments to attention layer
         attention_output = self.attention(hidden_states, attention_mask=attention_mask)[0]
         intermediate_output = self.intermediate(attention_output)
