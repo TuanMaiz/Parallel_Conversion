@@ -26,8 +26,8 @@ class ParaInfNeuron_Text(nn.Module):
         mean_over_time = x.mean(dim=0)  # [B*S, H]
         # Apply scaling for each timestep independently
         # mean_over_time: [B*S, H], TxT: [T, 1] -> broadcast to [T, B*S, H]
-        scaled = mean_over_time.unsqueeze(0) * self.TxT  
-        out = (scaled + self.bias) >= self.v_threshold
+        scaled = mean_over_time.unsqueeze(0) * self.TxT.repeat(1, H)  
+        out = (scaled + self.bias.repeat(1, H)) >= self.v_threshold
         out = out.float() * self.v_threshold
 
         # Reshape back to [B, S, H]
