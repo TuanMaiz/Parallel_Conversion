@@ -52,20 +52,17 @@ class BertLayerQCFS(nn.Module):
         self.intermediate = BertIntermediateQCFS(config, T)
         self.output = BertOutputQCFS(config)
 
-    def forward(self, *args, **kwargs):
-        # BERT calls layer with: (hidden_states, attention_mask, None, None, None) for 5 args
-        # Standard call pattern from transformers BERT layer
-        if len(args) >= 2:
-            hidden_states = args[0]
-            attention_mask = args[1]
-            # Additional args might be present, extract what we need
-        else:
-            hidden_states = args[0] if args else kwargs.get('hidden_states')
-            attention_mask = kwargs.get('attention_mask')
+    def forward(self, hidden_states, attention_mask=None, **kwargs):
+        # Debug: Check the actual shape of hidden_states
+        if hidden_states.dim() != 3:
+            print(f"ERROR: hidden_states has {hidden_states.dim()} dimensions, shape: {hidden_states.shape}")
+            print("Expected 3D [batch_size, seq_length, hidden_dim]")
+            # If we get 2D input, something is wrong with the BERT embedding
+            raise ValueError(f"Expected 3D hidden_states, got {hidden_states.dim()}D")
         
-        # Pass only essential arguments to attention layer
-        attention_kwargs = {'hidden_states': hidden_states, 'attention_mask': attention_mask}
-        attention_output = self.attention(**attention_kwargs)[0]
+        # BERT calls with hidden_states that should already be 3D [B, S, H] after embedding
+        # Pass all arguments to the attention layer as BERT expects
+        attention_output = self.attention(hidden_states, attention_mask=attention_mask, **kwargs)[0]
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
         return layer_output
