@@ -71,8 +71,8 @@ def train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, sim_len, l
             # Forward pass through SNN
             all_spikes = []
             for t in range(sim_len):
-                spike_t = model(input_ids=input_ids_expanded[t:t+1], 
-                              attention_mask=attention_mask_expanded[t:t+1])
+                spike_t = model(input_ids=input_ids_expanded[t], 
+                              attention_mask=attention_mask_expanded[t])
                 all_spikes.append(spike_t)
             
             # Mean over time steps for readout
