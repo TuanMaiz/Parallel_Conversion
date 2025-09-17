@@ -200,6 +200,14 @@ if __name__ == '__main__':
     parser.add_argument('--num_classes', type=int, default=4, help='Number of classes')
     parser.add_argument('--warm-up', type=str, nargs='+', default=[], help='--warm-up <epochs> <start-factor>')
     
+    # Text dataset specific arguments
+    parser.add_argument('--text_dataset', type=str, default='ag_news', 
+                        help='Text dataset name (ag_news, imdb, sst2, etc.)')
+    parser.add_argument('--text_tokenizer', type=str, default='bert-base-uncased',
+                        help='Tokenizer name for text data')
+    parser.add_argument('--text_max_len', type=int, default=128,
+                        help='Maximum sequence length for text data')
+    
     args = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.dev
     
@@ -234,13 +242,17 @@ if __name__ == '__main__':
         train_dataloader, test_dataloader, train_sampler, test_sampler, snn_test_dataloader = load_ImageNet_dataset(args.batchsize, os.path.join(args.datadir, 'train'), os.path.join(args.datadir, 'val'), distributed, is_cab=True)
         cls = 1000
     elif args.dataset == "TextCLS":
+        from dataprocess_text import get_dataloaders as get_text_dataloaders, get_dataset_info
         train_dataloader, test_dataloader = get_text_dataloaders(
             batch_size=args.batchsize,
-            max_len=128,  # or make it configurable
-            dataset_name="ag_news",  # or "imdb", etc.
-            tokenizer_name="bert-base-uncased",
+            dataset_name=args.text_dataset,
+            tokenizer_name=args.text_tokenizer,
+            max_len=args.text_max_len,
             num_workers=args.workers
         )
+        # Get number of classes from dataset config
+        dataset_config = get_dataset_info(args.text_dataset)
+        cls = dataset_config['num_classes']
     elif local_rank == 0:
         print('unable to find dataset ' + args.dataset)
     
