@@ -17,6 +17,7 @@ from torch.cuda import amp
 from timm.data import Mixup
 from typing import Tuple
 from dataprocess_text import get_dataloaders as get_text_dataloaders
+from train_text_snn import train_text_one_epoch, eval_text_snn, calib_text_one_epoch
 
 
 def get_logger(filename, verbosity=1, name=None):
@@ -333,16 +334,31 @@ if __name__ == '__main__':
                        
         if args.direct_inference is True and is_relu is False:
             model.cuda()
-            acc = eval_one_epoch(model, test_dataloader, 1)
-            model = replace_qcfs_by_neuron(model, args.neuron_type)
-            print(model)    
-            model.cuda()
-            if "ParaInfNeuron" in args.neuron_type:
-                new_acc, t1 = eval_one_epoch(model, snn_test_dataloader, args.time_step, True)
-                logger.info(f"SNNs Inference: Test Acc: {acc} | {new_acc}, Speed: {t1} (T={args.time_step})")
+            
+            if args.dataset == "TextCLS":
+                # Use text-specific evaluation and conversion
+                acc = eval_text_snn(model, test_dataloader, 1)
+                model = replace_text_qcfs_by_neuron(model, args.neuron_type)
+                model.cuda()
+                
+                if "ParaInfNeuron" in args.neuron_type:
+                    new_acc, t1 = eval_text_snn(model, test_dataloader, args.time_step, record_time=True)
+                    logger.info(f"SNNs Inference (Text): Test Acc: {acc[0]:.4f} | {new_acc[0]:.4f}, Speed: {t1:.4f} (T={args.time_step})")
+                else:
+                    # For other neuron types, use single time step eval
+                    new_acc = eval_text_snn(model, test_dataloader, args.time_step)
+                    logger.info(f"SNNs Inference (Text): Test Acc: {acc[0]:.4f} | {new_acc[0]:.4f} (T={args.time_step})")
             else:
-                t1 = eval_one_epoch_IF_speed(model, snn_test_dataloader, args.time_step)
-                logger.info(f"SNNs Inference: Test Acc: {acc}, Speed: {t1} (T={args.time_step})")
+                # Use standard vision evaluation
+                acc = eval_one_epoch(model, test_dataloader, 1)
+                model = replace_qcfs_by_neuron(model, args.neuron_type)
+                model.cuda()
+                if "ParaInfNeuron" in args.neuron_type:
+                    new_acc, t1 = eval_one_epoch(model, snn_test_dataloader, args.time_step, True)
+                    logger.info(f"SNNs Inference: Test Acc: {acc} | {new_acc}, Speed: {t1} (T={args.time_step})")
+                else:
+                    t1 = eval_one_epoch_IF_speed(model, snn_test_dataloader, args.time_step)
+                    logger.info(f"SNNs Inference: Test Acc: {acc}, Speed: {t1} (T={args.time_step})")
             
             sys.exit()
     
@@ -392,25 +408,49 @@ if __name__ == '__main__':
     for epoch in range(start_epoch, args.trainsnn_epochs):
         if distributed:
             train_sampler.set_epoch(epoch)
-        epoch_loss = train_one_epoch(model, loss_fn, optimizer, train_dataloader, 1, local_rank, scaler, mixup, distributed)
+            
+        # Use text-specific training functions for TextCLS dataset
+        if args.dataset == "TextCLS":
+            epoch_loss = train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, args.time_step, local_rank, scaler, mixup, distributed)
+        else:
+            epoch_loss = train_one_epoch(model, loss_fn, optimizer, train_dataloader, 1, local_rank, scaler, mixup, distributed)
+        
         scheduler.step()
 
         if local_rank == 0:
-            acc = eval_one_epoch(model, test_dataloader, 1)
-            checkpoint = {
-                'model': model_without_ddp.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'scheduler': scheduler.state_dict(),
-                'epoch': epoch,
-                'max_acc1': acc[-1].item()
-                }
-            if max_acc1 < acc[-1].item():
-                max_acc1 = acc[-1].item()
+            if args.dataset == "TextCLS":
+                # Use text-specific evaluation for TextCLS
+                acc = eval_text_snn(model, test_dataloader, args.time_step)
+                acc_val = acc[0] if isinstance(acc, tuple) else acc
+                checkpoint = {
+                    'model': model_without_ddp.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'scheduler': scheduler.state_dict(),
+                    'epoch': epoch,
+                    'max_acc1': acc_val
+                    }
+            else:
+                # Use standard evaluation for vision datasets
+                acc = eval_one_epoch(model, test_dataloader, 1)
+                checkpoint = {
+                    'model': model_without_ddp.state_dict(),
+                    'optimizer': optimizer.state_dict(),
+                    'scheduler': scheduler.state_dict(),
+                    'epoch': epoch,
+                    'max_acc1': acc[-1].item()
+                    }
+                    
+            if max_acc1 < (acc_val if args.dataset == "TextCLS" else acc[-1].item()):
+                max_acc1 = acc_val if args.dataset == "TextCLS" else acc[-1].item()
                 torch.save(checkpoint, save_name_suffix + '_best_checkpoint.pth')
             torch.save(checkpoint, save_name_suffix + '_current_checkpoint.pth')
 
-            logger.info(f"SNNs training Epoch {epoch}: Val_loss: {epoch_loss}")
-            logger.info(f"SNNs training Epoch {epoch}: Test Acc: {acc} Best Acc: {max_acc1}")
+            if args.dataset == "TextCLS":
+                logger.info(f"SNNs training Epoch {epoch}: Val_loss: {epoch_loss}")
+                logger.info(f"SNNs training Epoch {epoch}: Test Acc: {acc_val:.4f} Best Acc: {max_acc1:.4f}")
+            else:
+                logger.info(f"SNNs training Epoch {epoch}: Val_loss: {epoch_loss}")
+                logger.info(f"SNNs training Epoch {epoch}: Test Acc: {acc} Best Acc: {max_acc1}")
         
         if distributed:
             torch.distributed.barrier()

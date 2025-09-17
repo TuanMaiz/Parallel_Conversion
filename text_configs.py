@@ -25,34 +25,7 @@ TEXT_DATASETS = {
         'num_classes': 2,
         'description': 'Stanford Sentiment Treebank 2 (sentence-level)'
     },
-    'cola': {
-        'name': 'cola',
-        'text_field': 'sentence',
-        'label_field': 'label',
-        'num_classes': 2,
-        'description': 'Corpus of Linguistic Acceptability'
-    },
-    'mrpc': {
-        'name': 'mrpc',
-        'text_field': 'sentence1',  # For pair classification
-        'label_field': 'label',
-        'num_classes': 2,
-        'description': 'Microsoft Research Paraphrase Corpus'
-    },
-    'qnli': {
-        'name': 'qnli',
-        'text_field': 'sentence',
-        'label_field': 'label',
-        'num_classes': 2,
-        'description': 'Question- Natural Language Inference'
-    },
-    'rte': {
-        'name': 'rte',
-        'text_field': 'sentence',
-        'label_field': 'label',
-        'num_classes': 2,
-        'description': 'Recognizing Textual Entailment'
-    }
+    
 }
 
 # Default tokenizer configurations
