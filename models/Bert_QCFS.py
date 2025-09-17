@@ -52,9 +52,20 @@ class BertLayerQCFS(nn.Module):
         self.intermediate = BertIntermediateQCFS(config, T)
         self.output = BertOutputQCFS(config)
 
-    def forward(self, hidden_states, attention_mask=None, **kwargs):
-        # Only pass the essential arguments to attention layer
-        attention_output = self.attention(hidden_states, attention_mask=attention_mask)[0]
+    def forward(self, *args, **kwargs):
+        # BERT calls layer with: (hidden_states, attention_mask, None, None, None) for 5 args
+        # Standard call pattern from transformers BERT layer
+        if len(args) >= 2:
+            hidden_states = args[0]
+            attention_mask = args[1]
+            # Additional args might be present, extract what we need
+        else:
+            hidden_states = args[0] if args else kwargs.get('hidden_states')
+            attention_mask = kwargs.get('attention_mask')
+        
+        # Pass only essential arguments to attention layer
+        attention_kwargs = {'hidden_states': hidden_states, 'attention_mask': attention_mask}
+        attention_output = self.attention(**attention_kwargs)[0]
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
         return layer_output
