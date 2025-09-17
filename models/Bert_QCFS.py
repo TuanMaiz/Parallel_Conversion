@@ -42,23 +42,9 @@ class BertLayerQCFS(nn.Module):
         self.intermediate = BertIntermediateQCFS(config, T)
         self.output = BertOutputQCFS(config)
 
-    def forward(self, hidden_states, attention_mask=None, head_mask=None, encoder_hidden_states=None, encoder_attention_mask=None, past_key_values=None, output_attentions=None, output_hidden_states=None, use_cache=None, cache_position=None, position_ids=None, **kwargs):
-        # Pass all arguments to attention layer
-        attention_kwargs = {
-            'hidden_states': hidden_states,
-            'attention_mask': attention_mask,
-            'head_mask': head_mask,
-            'encoder_hidden_states': encoder_hidden_states,
-            'encoder_attention_mask': encoder_attention_mask,
-            'past_key_values': past_key_values,
-            'output_attentions': output_attentions,
-            'use_cache': use_cache,
-        }
-        # Only add non-None arguments
-        attention_kwargs = {k: v for k, v in attention_kwargs.items() if v is not None}
-        attention_kwargs.update(kwargs)
-        
-        attention_output = self.attention(**attention_kwargs)[0]
+    def forward(self, hidden_states, attention_mask=None, **kwargs):
+        # Only pass the essential arguments to attention layer
+        attention_output = self.attention(hidden_states, attention_mask=attention_mask)[0]
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
         return layer_output
