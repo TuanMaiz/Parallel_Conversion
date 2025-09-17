@@ -47,41 +47,40 @@ class BertOutputQCFS(nn.Module):
 class BertLayerQCFS(nn.Module):
     def __init__(self, config, T=4):
         super().__init__()
-        self.config = config
-        from transformers.models.bert.modeling_bert import BertAttention
+        from transformers.models.bert.modeling_bert import BertAttention, BertIntermediate, BertOutput
         self.attention = BertAttention(config)
-        self.intermediate = BertIntermediateQCFS(config, T)
-        self.output = BertOutputQCFS(config)
-        # Add embedding layer for fallback
-        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size)
-        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
-        self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
-        self.dropout = nn.Dropout(config.hidden_dropout_prob)
+        self.intermediate_qcfs = BertIntermediateQCFS(config, T)
+        self.output = BertOutput(config)
+        self.T = T
 
-    def forward(self, hidden_states, attention_mask=None, *args, **kwargs):
-        # BERT may pass 2D or 3D tensors depending on internal processing
+    def forward(self, hidden_states, attention_mask=None, head_mask=None, 
+                encoder_hidden_states=None, encoder_attention_mask=None, 
+                past_key_values=None, use_cache=False, output_attentions=False,
+                output_hidden_states=False, return_dict=False):
+        # Ensure hidden_states is 3D
         if hidden_states.dim() == 2:
-            # If 2D, add batch dimension
-            hidden_states = hidden_states.unsqueeze(0)
+            batch_size, seq_len = hidden_states.shape
+            hidden_size = self.attention.self.query.out_features
+            hidden_states = hidden_states.view(batch_size, seq_len, hidden_size)
         
-        # Ensure attention_mask matches the batch size
-        if attention_mask is not None and attention_mask.dim() == 2:
-            if attention_mask.shape[0] != hidden_states.shape[0]:
-                # Adjust attention_mask batch size if needed
-                if hidden_states.shape[0] == 1:
-                    # Broadcast attention_mask to match
-                    attention_mask = attention_mask[:1]
+        # Self-attention
+        self_attention_outputs = self.attention(
+            hidden_states,
+            attention_mask,
+            head_mask,
+            output_attentions=output_attentions,
+        )
+        attention_output = self_attention_outputs[0]
         
-        # Process through attention, intermediate, and output layers
-        attention_output = self.attention(hidden_states, attention_mask=attention_mask)[0]
-        intermediate_output = self.intermediate(attention_output)
+        # Intermediate with QCFS
+        intermediate_output = self.intermediate_qcfs(attention_output)
+        
+        # Output
         layer_output = self.output(intermediate_output, attention_output)
         
-        # Return in the same shape as input
-        if hidden_states.shape[0] == 1 and layer_output.shape[0] == 1:
-            # Remove batch dimension if input didn't have it
-            return layer_output.squeeze(0)
-        return layer_output
+        # Return in same format as original BERT layer
+        outputs = (layer_output,) + self_attention_outputs[1:]
+        return outputs
 
 
 # === Full model for classification ===
