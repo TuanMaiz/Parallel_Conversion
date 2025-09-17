@@ -57,8 +57,8 @@ def train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, sim_len, l
                 all_spikes = []
                 for t in range(sim_len):
                     # Process single time step
-                    spike_t = model(input_ids=input_ids_expanded[t:t+1], 
-                                  attention_mask=attention_mask_expanded[t:t+1])
+                    spike_t = model(input_ids=input_ids_expanded[t], 
+                                  attention_mask=attention_mask_expanded[t])
                     all_spikes.append(spike_t)
                 
                 # Mean over time steps for readout
@@ -131,14 +131,14 @@ def eval_text_snn(model, test_dataloader, sim_len, record_time=False):
             for t in range(sim_len):
                 if record_time:
                     starter.record()
-                    spike_t = model(input_ids=input_ids_expanded[t:t+1], 
-                                  attention_mask=attention_mask_expanded[t:t+1])
+                    spike_t = model(input_ids=input_ids_expanded[t], 
+                                  attention_mask=attention_mask_expanded[t])
                     ender.record()
                     torch.cuda.synchronize()
                     tot_time += starter.elapsed_time(ender) / 1000
                 else:
-                    spike_t = model(input_ids=input_ids_expanded[t:t+1], 
-                                  attention_mask=attention_mask_expanded[t:t+1])
+                    spike_t = model(input_ids=input_ids_expanded[t], 
+                                  attention_mask=attention_mask_expanded[t])
                 all_spikes.append(spike_t)
             
             # Mean over time steps for readout
@@ -233,8 +233,8 @@ def time_step_text_eval(model, test_dataloader, sim_len):
             # Accumulate spikes over time
             accumulated_spikes = []
             for t in range(sim_len):
-                spike_t = model(input_ids=input_ids_expanded[t:t+1], 
-                              attention_mask=attention_mask_expanded[t:t+1])
+                spike_t = model(input_ids=input_ids_expanded[t], 
+                              attention_mask=attention_mask_expanded[t])
                 accumulated_spikes.append(spike_t)
                 
                 # Calculate accuracy up to current time step
