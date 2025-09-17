@@ -1,6 +1,5 @@
 from transformers import DistilBertConfig, DistilBertModel
 import torch.nn as nn
-from modules_text import BertIntermediateQCFS
 
 class DistilBertIntermediateQCFS(nn.Module):
     def __init__(self, config, T=4):
