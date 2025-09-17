@@ -51,6 +51,11 @@ class BertLayerQCFS(nn.Module):
         self.attention = BertAttention(config)
         self.intermediate = BertIntermediateQCFS(config, T)
         self.output = BertOutputQCFS(config)
+        # Add embedding layer for fallback
+        self.word_embeddings = nn.Embedding(config.vocab_size, config.hidden_size)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
+        self.LayerNorm = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_eps)
+        self.dropout = nn.Dropout(config.hidden_dropout_prob)
 
     def forward(self, *args, **kwargs):
         # Extract the first two arguments: hidden_states and attention_mask
@@ -59,15 +64,26 @@ class BertLayerQCFS(nn.Module):
             attention_mask = args[1]
             # All other args (3-5) are ignored as they're not needed
         
-        # Debug: Check the actual shape of hidden_states
-        if hidden_states.dim() != 3:
-            print(f"ERROR: hidden_states has {hidden_states.dim()} dimensions, shape: {hidden_states.shape}")
-            print("Expected 3D [batch_size, seq_length, hidden_dim]")
-            # If we get 2D input, something is wrong with the BERT embedding
-            raise ValueError(f"Expected 3D hidden_states, got {hidden_states.dim()}D")
+        # Check if we got 2D input (input_ids instead of embedded hidden_states)
+        if hidden_states.dim() == 2:
+            # This happens when BERT passes input_ids directly - embed them
+            input_ids = hidden_states
+            batch_size, seq_length = input_ids.shape
+            
+            # Create position ids
+            position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
+            position_ids = position_ids.unsqueeze(0).expand(batch_size, seq_length)
+            
+            # Embed input_ids and position_ids
+            inputs_embeds = self.word_embeddings(input_ids)
+            position_embeds = self.position_embeddings(position_ids)
+            
+            # Combine embeddings
+            hidden_states = inputs_embeds + position_embeds
+            hidden_states = self.LayerNorm(hidden_states)
+            hidden_states = self.dropout(hidden_states)
         
-        # BERT calls with hidden_states that should already be 3D [B, S, H] after embedding
-        # Pass only what the attention layer needs
+        # Now hidden_states should be 3D [B, S, H]
         attention_output = self.attention(hidden_states, attention_mask=attention_mask)[0]
         intermediate_output = self.intermediate(attention_output)
         layer_output = self.output(intermediate_output, attention_output)
