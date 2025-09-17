@@ -26,8 +26,11 @@ def train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, sim_len, l
     Returns:
         float: Average loss for the epoch
     """
-    epoch_loss, lenth = 0, 0
+    epoch_loss, total_samples = 0, 0
     model.train()
+    total_batches = len(train_dataloader)
+    
+    print(f"Starting training with {total_batches} batches...")
     
     for batch_idx, (inputs, labels) in enumerate(train_dataloader):
         # Move inputs to GPU - text data has multiple keys
@@ -35,7 +38,8 @@ def train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, sim_len, l
         attention_mask = inputs['attention_mask'].cuda(local_rank, non_blocking=True)
         labels = labels.cuda(local_rank, non_blocking=True)
         
-        lenth += len(labels)
+        batch_size = len(labels)
+        total_samples += batch_size
         
         # Apply mixup if enabled
         if mixup:
@@ -66,10 +70,21 @@ def train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, sim_len, l
             from main import reduce_mean
             vis_loss = reduce_mean(loss, torch.distributed.get_world_size())
             epoch_loss += vis_loss.item()
+            current_loss = vis_loss.item()
         else:
             epoch_loss += loss.item()
+            current_loss = loss.item()
+        
+        # Print progress every 10 batches
+        if (batch_idx + 1) % 10 == 0:
+            avg_loss_so_far = epoch_loss / total_samples
+            print(f"Batch [{batch_idx+1}/{total_batches}] - Loss: {current_loss:.4f}, Avg Loss: {avg_loss_so_far:.4f}")
     
-    return epoch_loss / lenth
+    # Print epoch summary
+    final_avg_loss = epoch_loss / total_samples
+    print(f"Epoch completed - Total samples: {total_samples}, Average Loss: {final_avg_loss:.4f}")
+    
+    return final_avg_loss
 
 
 def eval_text_snn(model, test_dataloader, sim_len, record_time=False):
@@ -87,6 +102,9 @@ def eval_text_snn(model, test_dataloader, sim_len, record_time=False):
     """
     total_correct = 0
     total_samples = 0
+    total_batches = len(test_dataloader)
+    
+    print(f"Starting evaluation with {total_batches} batches...")
     
     model.eval()
     if record_time:
@@ -94,13 +112,14 @@ def eval_text_snn(model, test_dataloader, sim_len, record_time=False):
         tot_time = 0
     
     with torch.no_grad():
-        for inputs, labels in tqdm(test_dataloader, desc="Evaluating SNN"):
+        for batch_idx, (inputs, labels) in enumerate(tqdm(test_dataloader, desc="Evaluating SNN")):
             # Move inputs to GPU
             input_ids = inputs['input_ids'].to(torch.device('cuda'), non_blocking=True)
             attention_mask = inputs['attention_mask'].to(torch.device('cuda'), non_blocking=True)
             labels = labels.to(torch.device('cuda'), non_blocking=True)
             
-            total_samples += len(labels)
+            batch_size = len(labels)
+            total_samples += batch_size
             
             # Process through SNN model (single timestep, neurons spike internally)
             if record_time:
@@ -114,12 +133,21 @@ def eval_text_snn(model, test_dataloader, sim_len, record_time=False):
             
             # Calculate accuracy
             _, predicted = torch.max(outputs, 1)
-            total_correct += (predicted == labels).sum().item()
+            batch_correct = (predicted == labels).sum().item()
+            total_correct += batch_correct
+            
+            # Print progress every 20 batches during evaluation
+            if (batch_idx + 1) % 20 == 0:
+                current_accuracy = total_correct / total_samples
+                print(f"Eval Batch [{batch_idx+1}/{total_batches}] - Current Accuracy: {current_accuracy:.4f}")
     
     accuracy = total_correct / total_samples
     
+    # Print evaluation summary
+    print(f"Evaluation completed - Total samples: {total_samples}, Accuracy: {accuracy:.4f}")
     if record_time:
         avg_time = tot_time / total_samples
+        print(f"Average inference time per sample: {avg_time:.6f} seconds")
         return accuracy, avg_time
     else:
         return accuracy,
