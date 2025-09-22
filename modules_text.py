@@ -45,14 +45,31 @@ class DA_QCFS_Text(nn.Module):
         self.hidden_size = hidden_size
         self.T = T
         self.is_relu = is_relu
+        self.is_cab = False
+        self.calib_inf = False
 
         # Per-hidden-dim learnable/calibrated params
         self.clip_min = nn.Parameter(torch.zeros(hidden_size), requires_grad=False)
         self.clip_max = nn.Parameter(torch.ones(hidden_size), requires_grad=False)
         self.psi = nn.Parameter(torch.zeros(hidden_size), requires_grad=False)
         self.phi = nn.Parameter(torch.ones(hidden_size), requires_grad=False)
+        
+        # Calibration parameters
+        self.register_buffer('rec_in_mean', torch.zeros(hidden_size))
+        self.register_buffer('rec_th_mean', torch.zeros(hidden_size))
 
     def forward(self, x):  # x: [B, S, H]
+        if self.calib_inf:
+            # In calibration mode, use recorded statistics
+            return torch.clamp(torch.floor((x + self.rec_in_mean) * self.T / (self.clip_max + self.rec_th_mean) + 0.5) / self.T, 0, 1) * (self.clip_max + self.rec_th_mean)
+        
+        if self.is_cab:
+            # Record statistics during calibration
+            # Reshape to [B*S, H] for per-hidden-dim statistics
+            x_flat = x.reshape(-1, self.hidden_size)
+            self.rec_in_mean = 0.9 * self.rec_in_mean + 0.1 * x_flat.mean(0)
+            self.rec_th_mean = 0.9 * self.rec_th_mean + 0.1 * (x_flat - self.rec_in_mean).abs().mean(0)
+        
         # Clamp per hidden dim
         x = torch.max(x, self.clip_min)
         x = torch.min(x, self.clip_max)

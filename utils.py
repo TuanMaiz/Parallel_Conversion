@@ -105,8 +105,17 @@ def calib_text_one_epoch(model, dataloader):
             
             total_samples += len(labels)
             
-            # Forward pass (single time step for calibration)
+            # Expand inputs in time dimension (like vision calibration)
+            # Create 2 copies for calibration
+            if attention_mask is not None:
+                input_ids = input_ids.unsqueeze(0).repeat(2, 1, 1).flatten(0, 1)
+                attention_mask = attention_mask.unsqueeze(0).repeat(2, 1, 1).flatten(0, 1)
+            else:
+                input_ids = input_ids.unsqueeze(0).repeat(2, 1, 1).flatten(0, 1)
+            
+            # Forward pass with time expansion
             outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+            outputs = outputs.view(2, outputs.shape[0]//2, -1)[0]  # Take first copy
             _, predicted = torch.max(outputs, 1)
             total_correct += (predicted == labels).sum().item()
     

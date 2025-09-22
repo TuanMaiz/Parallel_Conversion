@@ -17,7 +17,7 @@ from torch.cuda import amp
 from timm.data import Mixup
 from typing import Tuple
 from dataprocess_text import get_dataloaders as get_text_dataloaders
-from train_text_snn import train_text_one_epoch, eval_text_snn, calib_text_snn_one_epoch
+from train_text_snn import train_text_one_epoch, eval_text_snn
 
 
 def get_logger(filename, verbosity=1, name=None):
@@ -335,9 +335,15 @@ if __name__ == '__main__':
             
         if args.calibrate_th is True and is_relu is False:                
             model.cuda()
-            calib_one_epoch(model, train_dataloader)
-            new_acc = eval_one_epoch(model, test_dataloader, 1)
-            logger.info(f"Calibrate Inference: Test Acc: {new_acc}")
+            if args.dataset == "TextCLS":
+                # Use text-specific calibration
+                new_acc = calib_text_one_epoch(model, train_dataloader)
+                logger.info(f"Calibrate Inference (Text): Test Acc: {new_acc:.4f}")
+            else:
+                # Use standard vision calibration
+                calib_one_epoch(model, train_dataloader)
+                new_acc = eval_one_epoch(model, test_dataloader, 1)
+                logger.info(f"Calibrate Inference: Test Acc: {new_acc}")
                        
         if args.direct_inference is True and is_relu is False:
             model.cuda()
