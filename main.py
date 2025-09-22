@@ -3,6 +3,7 @@ from models.VGG_QCFS import vgg16_qcfs
 from models.ResNet_QCFS import resnet20_qcfs, resnet34_qcfs
 from models.ResNet_ReLU import resnet18, resnet34, resnet50, resnet101
 from models.Bert_QCFS import BertForSequenceClassificationQCFS
+from models.Bert_Standard import BertForSequenceClassification, DistilBertForSequenceClassification
 import torch
 import torch.nn as nn
 import random
@@ -290,6 +291,16 @@ if __name__ == '__main__':
             T=args.time_step,
             num_labels=args.num_classes   # set from dataset
         )
+    elif args.net_arch == "bert_base":
+        model = BertForSequenceClassification(
+            pretrained_name="bert-base-uncased",
+            num_labels=args.num_classes
+        )
+    elif args.net_arch == "distilbert_base":
+        model = DistilBertForSequenceClassification(
+            pretrained_name="distilbert-base-uncased",
+            num_labels=args.num_classes
+        )
     else:
         if local_rank == 0:
             print('unable to find model ' + args.net_arch)
@@ -349,18 +360,24 @@ if __name__ == '__main__':
             model.cuda()
             
             if args.dataset == "TextCLS":
-                # Use text-specific evaluation and conversion
-                acc = eval_text_snn(model, test_dataloader, 1)
-                model = replace_text_qcfs_by_neuron(model, args.neuron_type)
-                model.cuda()
-                
-                if "ParaInfNeuron" in args.neuron_type:
-                    new_acc, t1 = eval_text_snn(model, test_dataloader, args.time_step, record_time=True)
-                    logger.info(f"SNNs Inference (Text): Test Acc: {acc[0]:.4f} | {new_acc[0]:.4f}, Speed: {t1:.4f} (T={args.time_step})")
+                # Check if it's a standard BERT model (no QCFS)
+                if "bert_base" in args.net_arch or "distilbert_base" in args.net_arch:
+                    # Standard BERT - evaluate directly
+                    acc = eval_text_snn(model, test_dataloader, 1)
+                    logger.info(f"Standard BERT Inference: Test Acc: {acc[0]:.4f}")
                 else:
-                    # For other neuron types, use single time step eval
-                    new_acc = eval_text_snn(model, test_dataloader, args.time_step)
-                    logger.info(f"SNNs Inference (Text): Test Acc: {acc[0]:.4f} | {new_acc[0]:.4f} (T={args.time_step})")
+                    # QCFS BERT - convert to SNN
+                    acc = eval_text_snn(model, test_dataloader, 1)
+                    model = replace_text_qcfs_by_neuron(model, args.neuron_type)
+                    model.cuda()
+                    
+                    if "ParaInfNeuron" in args.neuron_type:
+                        new_acc, t1 = eval_text_snn(model, test_dataloader, args.time_step, record_time=True)
+                        logger.info(f"SNNs Inference (Text): Test Acc: {acc[0]:.4f} | {new_acc[0]:.4f}, Speed: {t1:.4f} (T={args.time_step})")
+                    else:
+                        # For other neuron types, use single time step eval
+                        new_acc = eval_text_snn(model, test_dataloader, args.time_step)
+                        logger.info(f"SNNs Inference (Text): Test Acc: {acc[0]:.4f} | {new_acc[0]:.4f} (T={args.time_step})")
             else:
                 # Use standard vision evaluation
                 acc = eval_one_epoch(model, test_dataloader, 1)
@@ -456,7 +473,14 @@ if __name__ == '__main__':
             if max_acc1 < (acc_val if args.dataset == "TextCLS" else acc[-1].item()):
                 max_acc1 = acc_val if args.dataset == "TextCLS" else acc[-1].item()
                 torch.save(checkpoint, save_name_suffix + '_best_checkpoint.pth')
+                # Save only model weights for easier loading
+                torch.save(model_without_ddp.state_dict(), save_name_suffix + '_best_weights.pth')
             torch.save(checkpoint, save_name_suffix + '_current_checkpoint.pth')
+            
+            # Also save just the model weights every epoch
+            if epoch % 1 == 0 or epoch == args.trainsnn_epochs - 1:
+                torch.save(model_without_ddp.state_dict(), save_name_suffix + f'_weights_epoch_{epoch}.pth')
+                logger.info(f"Saved model weights at epoch {epoch}")
 
             if args.dataset == "TextCLS":
                 logger.info(f"SNNs training Epoch {epoch}: Val_loss: {epoch_loss}")
