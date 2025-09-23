@@ -27,7 +27,7 @@ class BertForSequenceClassification(nn.Module):
             loss_fct = nn.CrossEntropyLoss()
             loss = loss_fct(logits, labels)
             
-        return {"loss": loss, "logits": logits} if loss is not None else logits
+        return logits
 
 
 class DistilBertForSequenceClassification(nn.Module):
@@ -53,4 +53,4 @@ class DistilBertForSequenceClassification(nn.Module):
             loss_fct = nn.CrossEntropyLoss()
             loss = loss_fct(logits, labels)
             
-        return {"loss": loss, "logits": logits} if loss is not None else logits
+        return logits

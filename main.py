@@ -21,6 +21,157 @@ from dataprocess_text import get_dataloaders as get_text_dataloaders
 from train_text_snn import train_text_one_epoch, eval_text_snn
 
 
+def calculate_model_efficiency(model, dataloader, gpu_type='T4', time_steps=4, dataset_type='vision'):
+    """
+    Calculate comprehensive model efficiency metrics
+    
+    Args:
+        model: The model to analyze
+        dataloader: Data loader for sample inputs
+        gpu_type: GPU type ('A100' or 'T4')
+        time_steps: Number of time steps for SNN
+        dataset_type: 'vision' or 'text'
+    
+    Returns:
+        dict: Dictionary containing all efficiency metrics
+    """
+    try:
+        import subprocess
+        import psutil
+        from fvcore.nn import FlopCountAnalysis
+        from fvcore.nn import flop_count_table
+    except ImportError:
+        print("Installing required packages for efficiency calculation...")
+        subprocess.run(['pip', 'install', 'fvcore', 'psutil'], check=True)
+        from fvcore.nn import FlopCountAnalysis
+        from fvcore.nn import flop_count_table
+    
+    model.eval()
+    model.cuda()
+    
+    # Get sample input for FLOPs calculation
+    if dataset_type == 'vision':
+        sample_batch = next(iter(dataloader))
+        if isinstance(sample_batch, tuple):
+            sample_input = sample_batch[0][:1].cuda()  # Get first image
+        else:
+            sample_input = sample_batch[:1].cuda()
+    else:  # text
+        sample_batch = next(iter(dataloader))
+        sample_input = {
+            'input_ids': sample_batch[0]['input_ids'][:1].cuda(),
+            'attention_mask': sample_batch[0]['attention_mask'][:1].cuda()
+        }
+    
+    # Calculate FLOPs
+    try:
+        if dataset_type == 'vision':
+            flops_analysis = FlopCountAnalysis(model, sample_input)
+            flops = flops_analysis.total()
+        else:
+            flops_analysis = FlopCountAnalysis(model, sample_input)
+            flops = flops_analysis.total()
+    except Exception as e:
+        print(f"FLOPs calculation failed: {e}")
+        flops = 0
+    
+    # Calculate parameters
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    
+    # Memory usage
+    torch.cuda.empty_cache()
+    mem_before = torch.cuda.memory_allocated() / 1024**2  # MB
+    
+    # Run inference to measure memory and time
+    with torch.no_grad():
+        if dataset_type == 'vision':
+            # For SNN, simulate time steps
+            for _ in range(time_steps):
+                if len(sample_input.shape) == 4:  # Regular image
+                    output = model(sample_input)
+                else:
+                    output = model(sample_input.unsqueeze(0).repeat(time_steps, 1, 1, 1, 1).flatten(0, 1))
+        else:  # text
+            output = model(**sample_input)
+    
+    mem_after = torch.cuda.memory_allocated() / 1024**2  # MB
+    peak_memory = torch.cuda.max_memory_allocated() / 1024**2  # MB
+    
+    # GPU specifications for power calculation
+    gpu_specs = {
+        'A100': {
+            'tdp': 400,  # Watts
+            'memory_bandwidth': 1555,  # GB/s
+            'compute_capability': 8.0,
+            'fp32_tflops': 19.5
+        },
+        'T4': {
+            'tdp': 70,  # Watts
+            'memory_bandwidth': 320,  # GB/s
+            'compute_capability': 7.5,
+            'fp32_tflops': 8.1
+        }
+    }
+    
+    # Calculate theoretical throughput and efficiency
+    spec = gpu_specs[gpu_type]
+    
+    # Energy estimation based on FLOPs and GPU efficiency
+    assumed_efficiency = 0.3  # 30% of theoretical peak
+    energy_per_inference = (flops / (spec['fp32_tflops'] * 1e12)) * (spec['tdp'] * assumed_efficiency)  # Joules
+    
+    # Calculate metrics
+    flops_per_param = flops / total_params if total_params > 0 else 0
+    memory_intensity = flops / (peak_memory * 1024**2) if peak_memory > 0 else 0  # FLOPs per byte
+    
+    # Throughput estimation
+    if dataset_type == 'vision':
+        sample_size = sample_input.shape[-1] * sample_input.shape[-2] * 3  # H*W*C for RGB
+    else:
+        sample_size = sample_input['input_ids'].numel()
+    
+    throughput = flops / sample_size if sample_size > 0 else 0
+    
+    efficiency_metrics = {
+        'flops': flops,
+        'flops_giga': flops / 1e9,
+        'total_params': total_params,
+        'trainable_params': trainable_params,
+        'memory_usage_mb': peak_memory,
+        'memory_delta_mb': mem_after - mem_before,
+        'gpu_type': gpu_type,
+        'estimated_energy_joules': energy_per_inference,
+        'estimated_power_watts': energy_per_inference * 1000 / time_steps if time_steps > 0 else 0,
+        'flops_per_param': flops_per_param,
+        'memory_intensity': memory_intensity,
+        'throughput_ratio': throughput,
+        'theoretical_peak_tflops': spec['fp32_tflops'],
+        'achieved_tflops': (flops / 1e12) / (time_steps * 0.001) if time_steps > 0 else 0,  # Rough estimate
+        'efficiency_percentage': ((flops / 1e12) / spec['fp32_tflops']) * 100
+    }
+    
+    return efficiency_metrics
+
+
+def log_efficiency_metrics(metrics, logger):
+    """Log efficiency metrics in a readable format"""
+    logger.info("="*60)
+    logger.info("MODEL EFFICIENCY ANALYSIS")
+    logger.info("="*60)
+    logger.info(f"GPU Type: {metrics['gpu_type']}")
+    logger.info(f"FLOPs: {metrics['flops_giga']:.2f} GFLOPs")
+    logger.info(f"Parameters: {metrics['total_params']:,} total, {metrics['trainable_params']:,} trainable")
+    logger.info(f"Memory Usage: {metrics['memory_usage_mb']:.2f} MB peak, {metrics['memory_delta_mb']:.2f} MB delta")
+    logger.info(f"Energy Estimate: {metrics['estimated_energy_joules']:.6f} Joules per inference")
+    logger.info(f"Power Estimate: {metrics['estimated_power_watts']:.3f} Watts")
+    logger.info(f"FLOPs per Parameter: {metrics['flops_per_param']:.2f}")
+    logger.info(f"Memory Intensity: {metrics['memory_intensity']:.2f} FLOPs/byte")
+    logger.info(f"Theoretical Peak: {metrics['theoretical_peak_tflops']:.1f} TFLOPS")
+    logger.info(f"Efficiency: {metrics['efficiency_percentage']:.2f}% of theoretical peak")
+    logger.info("="*60)
+
+
 def get_logger(filename, verbosity=1, name=None):
     level_dict = {0: logging.DEBUG, 1: logging.INFO, 2: logging.WARNING}
     formatter = logging.Formatter(
@@ -201,6 +352,10 @@ if __name__ == '__main__':
     parser.add_argument('--workers', type=int, default=4, help='Number of data loading workers')
     parser.add_argument('--num_classes', type=int, default=4, help='Number of classes')
     parser.add_argument('--warm-up', type=str, nargs='+', default=[], help='--warm-up <epochs> <start-factor>')
+    parser.add_argument('--measure_efficiency', action='store_true', default=False, 
+                        help='Measure model efficiency (FLOPs, power, memory, etc.)')
+    parser.add_argument('--gpu_type', type=str, default='T4', choices=['A100', 'T4'],
+                        help='GPU type for power calculation (A100 or T4)')
     
     # Text dataset specific arguments
     parser.add_argument('--text_dataset', type=str, default='ag_news', 
@@ -334,13 +489,13 @@ if __name__ == '__main__':
                 #print(model)
                 model.cuda()
                 acc3, t3 = eval_one_epoch(model, snn_test_dataloader, args.time_step, True)
-                logger.info(f"SNNs Inference: Test Acc: {acc} | {acc2} | {acc3}, Speed: {t3} (T={args.time_step})")
+                logger.info(f"SNNs Inference [{args.net_arch}]: Test Acc: {acc} | {acc2} | {acc3}, Speed: {t3} (T={args.time_step})")
             else:
                 model = replace_relu_by_func(model, args.neuron_type)
                 #print(model)
                 model.cuda()
                 t2 = eval_one_epoch_IF_speed(model, snn_test_dataloader, args.time_step)
-                logger.info(f"SNNs Inference: Test Acc: {acc}, Speed: {t2} (T={args.time_step})")
+                logger.info(f"SNNs Inference [{args.net_arch}]: Test Acc: {acc}, Speed: {t2} (T={args.time_step})")
                 
             sys.exit()
             
@@ -349,12 +504,12 @@ if __name__ == '__main__':
             if args.dataset == "TextCLS":
                 # Use text-specific calibration
                 new_acc = calib_text_one_epoch(model, train_dataloader)
-                logger.info(f"Calibrate Inference (Text): Test Acc: {new_acc:.4f}")
+                logger.info(f"Calibrate Inference (Text) [{args.net_arch}]: Test Acc: {new_acc:.4f}")
             else:
                 # Use standard vision calibration
                 calib_one_epoch(model, train_dataloader)
                 new_acc = eval_one_epoch(model, test_dataloader, 1)
-                logger.info(f"Calibrate Inference: Test Acc: {new_acc}")
+                logger.info(f"Calibrate Inference [{args.net_arch}]: Test Acc: {new_acc}")
                        
         if args.direct_inference is True and is_relu is False:
             model.cuda()
@@ -364,7 +519,7 @@ if __name__ == '__main__':
                 if "bert_base" in args.net_arch or "distilbert_base" in args.net_arch:
                     # Standard BERT - evaluate directly
                     acc = eval_text_snn(model, test_dataloader, 1)
-                    logger.info(f"Standard BERT Inference: Test Acc: {acc[0]:.4f}")
+                    logger.info(f"Standard BERT Inference [{args.net_arch}]: Test Acc: {acc[0]:.4f}")
                 else:
                     # QCFS BERT - convert to SNN
                     acc = eval_text_snn(model, test_dataloader, 1)
@@ -373,11 +528,11 @@ if __name__ == '__main__':
                     
                     if "ParaInfNeuron" in args.neuron_type:
                         new_acc, t1 = eval_text_snn(model, test_dataloader, args.time_step, record_time=True)
-                        logger.info(f"SNNs Inference (Text): Test Acc: {acc[0]:.4f} | {new_acc[0]:.4f}, Speed: {t1:.4f} (T={args.time_step})")
+                        logger.info(f"SNNs Inference (Text) [{args.net_arch}]: Test Acc: {acc[0]:.4f} | {new_acc[0]:.4f}, Speed: {t1:.4f} (T={args.time_step})")
                     else:
                         # For other neuron types, use single time step eval
                         new_acc = eval_text_snn(model, test_dataloader, args.time_step)
-                        logger.info(f"SNNs Inference (Text): Test Acc: {acc[0]:.4f} | {new_acc[0]:.4f} (T={args.time_step})")
+                        logger.info(f"SNNs Inference (Text) [{args.net_arch}]: Test Acc: {acc[0]:.4f} | {new_acc[0]:.4f} (T={args.time_step})")
             else:
                 # Use standard vision evaluation
                 acc = eval_one_epoch(model, test_dataloader, 1)
@@ -385,10 +540,10 @@ if __name__ == '__main__':
                 model.cuda()
                 if "ParaInfNeuron" in args.neuron_type:
                     new_acc, t1 = eval_one_epoch(model, snn_test_dataloader, args.time_step, True)
-                    logger.info(f"SNNs Inference: Test Acc: {acc} | {new_acc}, Speed: {t1} (T={args.time_step})")
+                    logger.info(f"SNNs Inference [{args.net_arch}]: Test Acc: {acc} | {new_acc}, Speed: {t1} (T={args.time_step})")
                 else:
                     t1 = eval_one_epoch_IF_speed(model, snn_test_dataloader, args.time_step)
-                    logger.info(f"SNNs Inference: Test Acc: {acc}, Speed: {t1} (T={args.time_step})")
+                    logger.info(f"SNNs Inference [{args.net_arch}]: Test Acc: {acc}, Speed: {t1} (T={args.time_step})")
             
             sys.exit()
     
@@ -479,15 +634,56 @@ if __name__ == '__main__':
             
             # Also save just the model weights every epoch
             if epoch % 1 == 0 or epoch == args.trainsnn_epochs - 1:
-                torch.save(model_without_ddp.state_dict(), save_name_suffix + f'_weights_epoch_{epoch}.pth')
-                logger.info(f"Saved model weights at epoch {epoch}")
+                save_path = save_name_suffix + f'_weights_epoch_{epoch}.pth'
+                torch.save(model_without_ddp.state_dict(), save_path)
+                logger.info(f"Saved model weights at epoch {epoch} to: {save_path}")
+                logger.info(f"Save directory exists: {os.path.exists(os.path.dirname(save_path))}")
+                logger.info(f"File size: {os.path.getsize(save_path) if os.path.exists(save_path) else 'N/A'} bytes")
 
             if args.dataset == "TextCLS":
-                logger.info(f"SNNs training Epoch {epoch}: Val_loss: {epoch_loss}")
-                logger.info(f"SNNs training Epoch {epoch}: Test Acc: {acc_val:.4f} Best Acc: {max_acc1:.4f}")
+                logger.info(f"SNNs training Epoch {epoch} [{args.net_arch}]: Val_loss: {epoch_loss}")
+                logger.info(f"SNNs training Epoch {epoch} [{args.net_arch}]: Test Acc: {acc_val:.4f} Best Acc: {max_acc1:.4f}")
             else:
-                logger.info(f"SNNs training Epoch {epoch}: Val_loss: {epoch_loss}")
-                logger.info(f"SNNs training Epoch {epoch}: Test Acc: {acc} Best Acc: {max_acc1}")
+                logger.info(f"SNNs training Epoch {epoch} [{args.net_arch}]: Val_loss: {epoch_loss}")
+                logger.info(f"SNNs training Epoch {epoch} [{args.net_arch}]: Test Acc: {acc} Best Acc: {max_acc1}")
         
         if distributed:
             torch.distributed.barrier()
+    
+    # Efficiency measurement at the end
+    if args.measure_efficiency and local_rank == 0:
+        logger.info("Starting efficiency measurement...")
+        
+        # Determine dataset type for efficiency calculation
+        dataset_type = 'text' if args.dataset == "TextCLS" else 'vision'
+        
+        # Use appropriate dataloader based on dataset type
+        if dataset_type == 'text':
+            efficiency_dataloader = test_dataloader
+        else:
+            efficiency_dataloader = test_dataloader
+        
+        # Calculate efficiency metrics
+        efficiency_metrics = calculate_model_efficiency(
+            model_without_ddp, 
+            efficiency_dataloader, 
+            gpu_type=args.gpu_type,
+            time_steps=args.time_step,
+            dataset_type=dataset_type
+        )
+        
+        # Log efficiency results
+        log_efficiency_metrics(efficiency_metrics, logger)
+        
+        # Save efficiency results to file
+        efficiency_file = os.path.join(log_dir, f'{identifier}_efficiency.txt')
+        with open(efficiency_file, 'w') as f:
+            f.write("MODEL EFFICIENCY ANALYSIS RESULTS\n")
+            f.write("="*60 + "\n")
+            for key, value in efficiency_metrics.items():
+                if isinstance(value, float):
+                    f.write(f"{key}: {value:.6f}\n")
+                else:
+                    f.write(f"{key}: {value}\n")
+        
+        logger.info(f"Efficiency results saved to: {efficiency_file}")
