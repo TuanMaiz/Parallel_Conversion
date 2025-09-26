@@ -1,4 +1,5 @@
 from modules import *
+from modules_text import IFNeuron_Text, ParaInfNeuron_Text
 import torch
 
 def replace_qcfs_by_neuron(model, neuron_type):
@@ -78,8 +79,7 @@ def replace_text_qcfs_by_neuron(model, neuron_type):
             if 'ParaInfNeuron_Text' in neuron_type:
                 module.spike_neuron = ParaInfNeuron_Text(module.da_qcfs.T)
             elif 'IFNeuron_Text' in neuron_type:
-                # Need to implement IFNeuron_Text
-                module.spike_neuron = ParaInfNeuron_Text(module.da_qcfs.T)  # Fallback for now
+                module.spike_neuron = IFNeuron_Text(module.da_qcfs.T, th=module.da_qcfs.clip_max.mean().item())
     return model
 
 

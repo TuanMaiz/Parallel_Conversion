@@ -102,3 +102,56 @@ class RecReLU_Text(nn.Module):
             self.up = torch.max(self.up, max_th)
 
         return torch.clamp(x, torch.zeros_like(self.up), self.up)
+
+
+class IFNeuron_Text(nn.Module):
+    """
+    Integrate-and-Fire neuron for text (Transformer hidden states).
+    Works on [B, S, H] inputs (batch, seq_len, hidden_dim).
+    Sequential processing - one timestep at a time.
+    """
+    def __init__(self, T, th=1., init_mem=0.5):
+        super().__init__()
+        self.T = T
+        self.v_threshold = th
+        self.init_mem = init_mem
+        self.t = 0
+        
+        # Initialize membrane potential
+        if isinstance(th, torch.Tensor):
+            self.register_buffer('v_threshold', th)
+            self.register_buffer('v', init_mem * th)
+        else:
+            self.v_threshold = th
+            self.v = init_mem * th
+
+    def forward(self, x):
+        """
+        Sequential processing for IF neuron.
+        x: [B, S, H] - processed sequentially across timesteps
+        """
+        # Reset counter for new sequence
+        if self.t == 0:
+            self.reset()
+        
+        self.t += 1
+        
+        # Integrate input
+        self.v = self.v + x
+        
+        # Generate spike
+        spike = (self.v >= self.v_threshold).float() * self.v_threshold
+        
+        # Reset membrane potential after spike
+        self.v = self.v - spike
+        
+        # Reset at end of time window
+        if self.t == self.T:
+            self.reset()
+        
+        return spike
+
+    def reset(self):
+        """Reset membrane potential to initial state."""
+        self.v = self.init_mem * self.v_threshold
+        self.t = 0
