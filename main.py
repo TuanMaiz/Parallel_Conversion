@@ -526,7 +526,7 @@ if __name__ == '__main__':
                     model = replace_text_qcfs_by_neuron(model, args.neuron_type)
                     model.cuda()
                     
-                    if "ParaInfNeuron" in args.neuron_type:
+                    if "ParaInfNeuron_Text" in args.neuron_type:
                         new_acc, t1 = eval_text_snn(model, test_dataloader, args.time_step, record_time=True)
                         logger.info(f"SNNs Inference (Text) [{args.net_arch}]: Test Acc: {acc[0]:.4f} | {new_acc[0]:.4f}, Speed: {t1:.4f} (T={args.time_step})")
                     else:
