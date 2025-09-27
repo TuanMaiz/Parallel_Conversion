@@ -8,7 +8,7 @@ from tqdm import tqdm
 from torch.cuda import amp
 import logging
 
-def train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, sim_len, local_rank, scaler=None, mixup=None, distributed=False):
+def train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, sim_len, local_rank, scaler=None, mixup=None, distributed=False, neuron_type="ParaInfNeuron_Text"):
     """
     Train SNN model on text data with proper time-step processing
     
@@ -22,6 +22,7 @@ def train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, sim_len, l
         scaler: AMP scaler
         mixup: Mixup augmentation
         distributed: Whether using distributed training
+        neuron_type: Type of neuron ("ParaInfNeuron_Text" or "IFNeuron_Text")
         
     Returns:
         float: Average loss for the epoch
@@ -30,7 +31,7 @@ def train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, sim_len, l
     model.train()
     total_batches = len(train_dataloader)
     
-    print(f"Starting training with {total_batches} batches...")
+    print(f"Starting training with {total_batches} batches, neuron_type={neuron_type}...")
     
     for batch_idx, (inputs, labels) in enumerate(train_dataloader):
         # Move inputs to GPU - text data has multiple keys
@@ -48,20 +49,50 @@ def train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, sim_len, l
         
         optimizer.zero_grad()
         
-        # Process through SNN - this is ANN-SNN conversion, not time-expanded input
-        # The spiking happens within the neurons, not in the input
-        if scaler is not None:
-            with amp.autocast():
-                # Forward pass through SNN model (single timestep, neurons spike internally)
+        # Process through SNN based on neuron type
+        if "IFNeuron_Text" in neuron_type:
+            # Sequential training: T forward passes
+            timestep_outputs = []
+            timestep_losses = []
+            
+            for t in range(sim_len):
+                reset_if_neurons(model)  # Reset for each timestep
+                
+                if scaler is not None:
+                    with amp.autocast():
+                        output_t = model(input_ids=input_ids, attention_mask=attention_mask)
+                        loss_t = loss_fn(output_t, labels)
+                    timestep_losses.append(loss_t)
+                else:
+                    output_t = model(input_ids=input_ids, attention_mask=attention_mask)
+                    loss_t = loss_fn(output_t, labels)
+                    timestep_losses.append(loss_t)
+                
+                timestep_outputs.append(output_t)
+            
+            # Average outputs and losses across timesteps
+            outputs = torch.stack(timestep_outputs).mean(dim=0)
+            loss = torch.stack(timestep_losses).mean(dim=0)
+            
+        else:
+            # Parallel training: single forward pass
+            if scaler is not None:
+                with amp.autocast():
+                    # Forward pass through SNN model (single timestep, neurons spike internally)
+                    outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+                    loss = loss_fn(outputs, labels)
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                # Forward pass through SNN model (single timestep)
                 outputs = model(input_ids=input_ids, attention_mask=attention_mask)
                 loss = loss_fn(outputs, labels)
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
-        else:
-            # Forward pass through SNN model (single timestep)
-            outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-            loss = loss_fn(outputs, labels)
+                loss.backward()
+                optimizer.step()
+        
+        # For sequential processing, we need to handle optimization separately
+        if "IFNeuron_Text" in neuron_type:
             loss.backward()
             optimizer.step()
         
@@ -85,6 +116,98 @@ def train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, sim_len, l
     print(f"Epoch completed - Total samples: {total_samples}, Average Loss: {final_avg_loss:.4f}")
     
     return final_avg_loss
+
+
+def eval_text_snn_sequential(model, test_dataloader, sim_len, record_time=True):
+    """
+    Evaluate SNN model on text data with SEQUENTIAL processing for IF neurons
+    
+    Args:
+        model: SNN model for text (should have IF neurons)
+        test_dataloader: Text test data loader
+        sim_len: Number of simulation time steps
+        record_time: Whether to record timing information
+        
+    Returns:
+        tuple: (accuracy, time_per_step, total_time) if record_time else (accuracy,)
+    """
+    import time
+    total_correct = 0
+    total_samples = 0
+    total_batches = len(test_dataloader)
+    
+    print(f"Starting SEQUENTIAL evaluation with {total_batches} batches, T={sim_len}...")
+    
+    model.eval()
+    if record_time:
+        starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+        tot_time = 0
+        total_start_time = time.time()
+    
+    with torch.no_grad():
+        for batch_idx, (inputs, labels) in enumerate(tqdm(test_dataloader, desc="Evaluating SNN Sequential")):
+            # Move inputs to GPU
+            input_ids = inputs['input_ids'].to(torch.device('cuda'), non_blocking=True)
+            attention_mask = inputs['attention_mask'].to(torch.device('cuda'), non_blocking=True)
+            labels = labels.to(torch.device('cuda'), non_blocking=True)
+            
+            batch_size = len(labels)
+            total_samples += batch_size
+            
+            # Sequential processing: T separate forward passes
+            timestep_outputs = []
+            
+            for t in range(sim_len):
+                if record_time:
+                    starter.record()
+                    # Reset IF neuron states for each timestep (simulate fresh start)
+                    reset_if_neurons(model)
+                    output_t = model(input_ids=input_ids, attention_mask=attention_mask)
+                    ender.record()
+                    torch.cuda.synchronize()
+                    tot_time += starter.elapsed_time(ender) / 1000
+                else:
+                    reset_if_neurons(model)
+                    output_t = model(input_ids=input_ids, attention_mask=attention_mask)
+                
+                timestep_outputs.append(output_t)
+            
+            # Average outputs across timesteps
+            outputs = torch.stack(timestep_outputs).mean(dim=0)
+            
+            # Calculate accuracy
+            _, predicted = torch.max(outputs, 1)
+            batch_correct = (predicted == labels).sum().item()
+            total_correct += batch_correct
+            
+            # Print progress every 20 batches during evaluation
+            if (batch_idx + 1) % 20 == 0:
+                current_accuracy = total_correct / total_samples
+                print(f"Eval Batch [{batch_idx+1}/{total_batches}] - Current Accuracy: {current_accuracy:.4f}")
+    
+    accuracy = total_correct / total_samples
+    
+    # Print evaluation summary
+    print(f"Sequential evaluation completed - Total samples: {total_samples}, Accuracy: {accuracy:.4f}")
+    if record_time:
+        total_end_time = time.time()
+        total_time = total_end_time - total_start_time
+        avg_time = tot_time / total_samples
+        print(f"Average inference time per sample: {avg_time:.6f} seconds")
+        print(f"Total evaluation time: {total_time:.2f} seconds")
+        return accuracy, avg_time, total_time
+    else:
+        return accuracy,
+
+
+def reset_if_neurons(model):
+    """Reset IF neuron states in the model"""
+    for name, module in model.named_modules():
+        if hasattr(module, 'reset') and hasattr(module, 'T'):
+            try:
+                module.reset()
+            except:
+                pass
 
 
 def eval_text_snn(model, test_dataloader, sim_len, record_time=True):

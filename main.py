@@ -527,11 +527,14 @@ if __name__ == '__main__':
                     model.cuda()
                     
                     if "ParaInfNeuron_Text" in args.neuron_type:
+                        # Parallel processing - single model call
                         new_acc, t1, total_time = eval_text_snn(model, test_dataloader, args.time_step, record_time=True)
                         logger.info(f"SNNs Inference (Text) [{args.net_arch}]: Test Acc: {acc[0]:.4f} | {new_acc[0]:.4f}, Speed: {t1:.4f} (T={args.time_step}), Total Time: {total_time:.2f}s")
                     elif "IFNeuron_Text" in args.neuron_type:
-                        new_acc, t1, total_time = eval_text_snn(model, test_dataloader, args.time_step, record_time=True)
-                        logger.info(f"SNNs Inference (Text) [{args.net_arch}]: Test Acc: {acc[0]:.4f} | {new_acc[0]:.4f}, Speed: {t1:.4f} (T={args.time_step}), Total Time: {total_time:.2f}s")
+                        # Sequential processing - T model calls to demonstrate speed difference
+                        from train_text_snn import eval_text_snn_sequential
+                        new_acc, t1, total_time = eval_text_snn_sequential(model, test_dataloader, args.time_step, record_time=True)
+                        logger.info(f"SNNs Inference (Text) [{args.net_arch}]: Test Acc: {acc[0]:.4f} | {new_acc[0]:.4f}, Speed: {t1:.4f} (T={args.time_step}, SEQUENTIAL), Total Time: {total_time:.2f}s")
                     else:
                         # For other neuron types, use single time step eval
                         new_acc = eval_text_snn(model, test_dataloader, args.time_step)
@@ -599,7 +602,7 @@ if __name__ == '__main__':
             
         # Use text-specific training functions for TextCLS dataset
         if args.dataset == "TextCLS":
-            epoch_loss = train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, args.time_step, local_rank, scaler, mixup, distributed)
+            epoch_loss = train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, args.time_step, local_rank, scaler, mixup, distributed, args.neuron_type)
         else:
             epoch_loss = train_one_epoch(model, loss_fn, optimizer, train_dataloader, 1, local_rank, scaler, mixup, distributed)
         
@@ -608,8 +611,13 @@ if __name__ == '__main__':
         if local_rank == 0:
             if args.dataset == "TextCLS":
                 # Use text-specific evaluation for TextCLS
-                acc = eval_text_snn(model, test_dataloader, args.time_step)
-                acc_val = acc[0] if isinstance(acc, tuple) else acc
+                if "IFNeuron_Text" in args.neuron_type:
+                    from train_text_snn import eval_text_snn_sequential
+                    acc = eval_text_snn_sequential(model, test_dataloader, args.time_step, record_time=False)
+                    acc_val = acc[0] if isinstance(acc, tuple) else acc
+                else:
+                    acc = eval_text_snn(model, test_dataloader, args.time_step)
+                    acc_val = acc[0] if isinstance(acc, tuple) else acc
                 checkpoint = {
                     'model': model_without_ddp.state_dict(),
                     'optimizer': optimizer.state_dict(),
