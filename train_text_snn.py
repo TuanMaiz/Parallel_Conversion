@@ -98,8 +98,9 @@ def eval_text_snn(model, test_dataloader, sim_len, record_time=True):
         record_time: Whether to record timing information
         
     Returns:
-        tuple: (accuracy, time_per_step) if record_time else (accuracy,)
+        tuple: (accuracy, time_per_step, total_time) if record_time else (accuracy,)
     """
+    import time
     total_correct = 0
     total_samples = 0
     total_batches = len(test_dataloader)
@@ -110,6 +111,7 @@ def eval_text_snn(model, test_dataloader, sim_len, record_time=True):
     if record_time:
         starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
         tot_time = 0
+        total_start_time = time.time()
     
     with torch.no_grad():
         for batch_idx, (inputs, labels) in enumerate(tqdm(test_dataloader, desc="Evaluating SNN")):
@@ -146,9 +148,12 @@ def eval_text_snn(model, test_dataloader, sim_len, record_time=True):
     # Print evaluation summary
     print(f"Evaluation completed - Total samples: {total_samples}, Accuracy: {accuracy:.4f}")
     if record_time:
+        total_end_time = time.time()
+        total_time = total_end_time - total_start_time
         avg_time = tot_time / total_samples
         print(f"Average inference time per sample: {avg_time:.6f} seconds")
-        return accuracy, avg_time
+        print(f"Total evaluation time: {total_time:.2f} seconds")
+        return accuracy, avg_time, total_time
     else:
         return accuracy,
 
