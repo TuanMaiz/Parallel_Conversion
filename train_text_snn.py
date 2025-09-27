@@ -87,7 +87,7 @@ def train_text_one_epoch(model, loss_fn, optimizer, train_dataloader, sim_len, l
     return final_avg_loss
 
 
-def eval_text_snn(model, test_dataloader, sim_len, record_time=False):
+def eval_text_snn(model, test_dataloader, sim_len, record_time=True):
     """
     Evaluate SNN model on text data with proper time-step processing
     
