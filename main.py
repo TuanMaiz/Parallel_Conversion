@@ -529,6 +529,9 @@ if __name__ == '__main__':
                     if "ParaInfNeuron_Text" in args.neuron_type:
                         new_acc, t1, total_time = eval_text_snn(model, test_dataloader, args.time_step, record_time=True)
                         logger.info(f"SNNs Inference (Text) [{args.net_arch}]: Test Acc: {acc[0]:.4f} | {new_acc[0]:.4f}, Speed: {t1:.4f} (T={args.time_step}), Total Time: {total_time:.2f}s")
+                    elif "IFNeuron_Text" in args.neuron_type:
+                        new_acc, t1, total_time = eval_text_snn(model, test_dataloader, args.time_step, record_time=True)
+                        logger.info(f"SNNs Inference (Text) [{args.net_arch}]: Test Acc: {acc[0]:.4f} | {new_acc[0]:.4f}, Speed: {t1:.4f} (T={args.time_step}), Total Time: {total_time:.2f}s")
                     else:
                         # For other neuron types, use single time step eval
                         new_acc = eval_text_snn(model, test_dataloader, args.time_step)
