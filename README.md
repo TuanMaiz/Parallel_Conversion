@@ -1,14 +1,24 @@
-# Faster and Stronger: When ANN-SNN Conversion Meets Parallel Spiking Calculation
-
-Code implementation for [Faster and Stronger: When ANN-SNN Conversion Meets Parallel Spiking Calculation](https://openreview.net/forum?id=Wz2T778EKJ) (*ICML 2025*).
-
+# Code implementation for applying Parallel Spiking Calculation in Natural Language Processing
 ## 👨‍💻 Quick Usage
 ```
-python main.py --dataset ImageNet --datadir /home/path-to-datasets/ --savedir /home/path-to-savedir/ --net_arch resnet34_qcfs --amp --batchsize 100 --dev 0 --time_step 8 --neuron_type ParaInfNeuron --checkpoint_path /home/path-to-checkpoints --pretrained_model --direct_inference
+!python Parallel_Conversion/main.py \
+      --dataset TextCLS \
+      --net_arch distilbert_base_qcfs \
+      --savedir ./checkpoints \
+      --neuron_type ParaInfNeuron_Text \
+      --text_dataset imdb \
+      --text_max_len 256 \
+      --time_step 2 \
+      --trainsnn_epochs 5 \
+      --batchsize 16 \
+      --lr 0.00001 \
+      --measure_efficiency \
+      --gpu_type A100 \
+      --dev 0
 ```
 
 ## ✒️ Citation
-If you find our work helpful for your research, please consider giving a star ⭐ and citation 📝:
+
 
 ```bibtex
 @inproceedings{hao2025conversion,

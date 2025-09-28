@@ -3,7 +3,7 @@ from models.VGG_QCFS import vgg16_qcfs
 from models.ResNet_QCFS import resnet20_qcfs, resnet34_qcfs
 from models.ResNet_ReLU import resnet18, resnet34, resnet50, resnet101
 from models.Bert_QCFS import BertForSequenceClassificationQCFS
-from models.Bert_Standard import BertForSequenceClassification, DistilBertForSequenceClassification
+from models.Bert_Standard import BertForSequenceClassification
 import torch
 import torch.nn as nn
 import random
@@ -152,24 +152,6 @@ def calculate_model_efficiency(model, dataloader, gpu_type='T4', time_steps=4, d
     }
     
     return efficiency_metrics
-
-
-def log_efficiency_metrics(metrics, logger):
-    """Log efficiency metrics in a readable format"""
-    logger.info("="*60)
-    logger.info("MODEL EFFICIENCY ANALYSIS")
-    logger.info("="*60)
-    logger.info(f"GPU Type: {metrics['gpu_type']}")
-    logger.info(f"FLOPs: {metrics['flops_giga']:.2f} GFLOPs")
-    logger.info(f"Parameters: {metrics['total_params']:,} total, {metrics['trainable_params']:,} trainable")
-    logger.info(f"Memory Usage: {metrics['memory_usage_mb']:.2f} MB peak, {metrics['memory_delta_mb']:.2f} MB delta")
-    logger.info(f"Energy Estimate: {metrics['estimated_energy_joules']:.6f} Joules per inference")
-    logger.info(f"Power Estimate: {metrics['estimated_power_watts']:.3f} Watts")
-    logger.info(f"FLOPs per Parameter: {metrics['flops_per_param']:.2f}")
-    logger.info(f"Memory Intensity: {metrics['memory_intensity']:.2f} FLOPs/byte")
-    logger.info(f"Theoretical Peak: {metrics['theoretical_peak_tflops']:.1f} TFLOPS")
-    logger.info(f"Efficiency: {metrics['efficiency_percentage']:.2f}% of theoretical peak")
-    logger.info("="*60)
 
 
 def get_logger(filename, verbosity=1, name=None):
@@ -439,21 +421,9 @@ if __name__ == '__main__':
             T=args.time_step,
             num_labels=args.num_classes   # set from dataset
         )
-    elif args.net_arch == "distilbert_base_qcfs":
-        from models.DistilBert_QCFS import DistilBertForSequenceClassificationQCFS
-        model = DistilBertForSequenceClassificationQCFS(
-            pretrained_name="distilbert-base-uncased",
-            T=args.time_step,
-            num_labels=args.num_classes   # set from dataset
-        )
     elif args.net_arch == "bert_base":
         model = BertForSequenceClassification(
             pretrained_name="bert-base-uncased",
-            num_labels=args.num_classes
-        )
-    elif args.net_arch == "distilbert_base":
-        model = DistilBertForSequenceClassification(
-            pretrained_name="distilbert-base-uncased",
             num_labels=args.num_classes
         )
     else:
@@ -516,7 +486,7 @@ if __name__ == '__main__':
             
             if args.dataset == "TextCLS":
                 # Check if it's a standard BERT model (no QCFS)
-                if "bert_base" in args.net_arch or "distilbert_base" in args.net_arch:
+                if "bert_base" in args.net_arch:
                     # Standard BERT - evaluate directly
                     acc = eval_text_snn(model, test_dataloader, 1)
                     logger.info(f"Standard BERT Inference [{args.net_arch}]: Test Acc: {acc[0]:.4f}")
@@ -660,41 +630,4 @@ if __name__ == '__main__':
         
         if distributed:
             torch.distributed.barrier()
-    
-    # Efficiency measurement at the end
-    if args.measure_efficiency and local_rank == 0:
-        logger.info("Starting efficiency measurement...")
         
-        # Determine dataset type for efficiency calculation
-        dataset_type = 'text' if args.dataset == "TextCLS" else 'vision'
-        
-        # Use appropriate dataloader based on dataset type
-        if dataset_type == 'text':
-            efficiency_dataloader = test_dataloader
-        else:
-            efficiency_dataloader = test_dataloader
-        
-        # Calculate efficiency metrics
-        efficiency_metrics = calculate_model_efficiency(
-            model_without_ddp, 
-            efficiency_dataloader, 
-            gpu_type=args.gpu_type,
-            time_steps=args.time_step,
-            dataset_type=dataset_type
-        )
-        
-        # Log efficiency results
-        log_efficiency_metrics(efficiency_metrics, logger)
-        
-        # Save efficiency results to file
-        efficiency_file = os.path.join(log_dir, f'{identifier}_efficiency.txt')
-        with open(efficiency_file, 'w') as f:
-            f.write("MODEL EFFICIENCY ANALYSIS RESULTS\n")
-            f.write("="*60 + "\n")
-            for key, value in efficiency_metrics.items():
-                if isinstance(value, float):
-                    f.write(f"{key}: {value:.6f}\n")
-                else:
-                    f.write(f"{key}: {value}\n")
-        
-        logger.info(f"Efficiency results saved to: {efficiency_file}")

@@ -18,13 +18,6 @@ TEXT_DATASETS = {
         'num_classes': 2,
         'description': 'IMDB movie review sentiment analysis'
     },
-    'sst2': {
-        'name': 'sst2',
-        'text_field': 'sentence',
-        'label_field': 'label', 
-        'num_classes': 2,
-        'description': 'Stanford Sentiment Treebank 2 (sentence-level)'
-    },
     
 }
 
